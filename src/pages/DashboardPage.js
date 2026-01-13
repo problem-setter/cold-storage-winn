@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './DashboardPage.css';
 import { supabase } from '../lib/supabase';
-import { requestFCMToken, onMessageListener } from '../firebase-messaging';
+import { requestFCMToken } from '../firebase-messaging';
 
 /* ===== GREETING ===== */
 const getJakartaGreeting = () => {
@@ -22,36 +22,7 @@ const DashboardPage = () => {
   const [greeting, setGreeting] = useState(getJakartaGreeting());
   const [latest, setLatest] = useState(null);
 
-  useEffect(() => {
-  const initNotifications = async () => {
-    console.log('🔔 Initializing notifications...')
-    
-    // Request permission & token
-    const token = await requestFCMToken()
-    
-    if (token) {
-      console.log('✅ Notifications ready')
-      
-      // Setup foreground message listener
-      onMessageListener((payload) => {
-        console.log('📨 Foreground message:', payload)
-        const { title, body } = payload.notification || {}
-        if (title && Notification.permission === 'granted') {
-          new Notification(title, {
-            body,
-            icon: '/logo192.png',
-            tag: 'cold-storage-notification',
-            requireInteraction: true
-          })
-        }
-      })
-    } else {
-      console.warn('⚠️ Notifications not available')
-    }
-  }
-  
-  initNotifications()
-}, [])
+  // Notification setup is now in App.js - removed duplicate here
 
   // SIMPAN DATA SEBELUMNYA
   const prevRef = useRef(null);
@@ -244,6 +215,27 @@ const DashboardPage = () => {
       ]
     : [];
 
+  // TEMP DEBUG BUTTON: trigger a local notification for testing
+  const triggerDebugNotification = async () => {
+    const token = await requestFCMToken();
+    if (!token) {
+      alert('Permission/token unavailable. Please allow notifications.');
+      return;
+    }
+
+    if (Notification.permission !== 'granted') {
+      alert('Notifications are blocked. Enable them in browser/OS settings.');
+      return;
+    }
+
+    // Use a unique tag so each click shows a new notification
+    new Notification('🔔 Debug Notification', {
+      body: 'This is a test notification from the debug button.',
+      icon: '/logo192.png',
+      tag: `debug-${Date.now()}`
+    });
+  };
+
   return (
     <main className="page dashboard-page">
       <div className="dashboard-title">
@@ -272,6 +264,26 @@ const DashboardPage = () => {
           ))}
         </div>
       </div>
+
+      {/* TEMP: debug notification trigger (remove before release) */}
+      <button
+        type="button"
+        onClick={triggerDebugNotification}
+        style={{
+          position: 'fixed',
+          bottom: '6rem',
+          right: '1.25rem',
+          padding: '0.85rem 1rem',
+          borderRadius: '12px',
+          border: '1px solid var(--border)',
+          background: 'var(--card)',
+          boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
+          cursor: 'pointer',
+          fontWeight: 700
+        }}
+      >
+        Send Debug Notification
+      </button>
     </main>
   );
 };

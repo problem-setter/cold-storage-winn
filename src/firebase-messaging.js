@@ -28,9 +28,19 @@ export const requestFCMToken = async () => {
       return null
     }
 
+    // REQUEST PERMISSION FIRST
+    console.log('🔄 Requesting notification permission...')
+    const permission = await Notification.requestPermission()
+    console.log('🔔 Permission status:', permission)
+
+    if (permission !== 'granted') {
+      console.warn('❌ User denied notification permission')
+      return null
+    }
+
     // 🔥 PENTING: Tunggu sampai SW benar-benar ready
     console.log('🔄 Checking service worker registration...')
-    let registration = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
+    let registration = await navigator.serviceWorker.getRegistration('/')
 
     if (!registration) {
       console.log('📝 Registrasi Service Worker baru...')
@@ -58,15 +68,6 @@ export const requestFCMToken = async () => {
     // Update SW jika ada versi baru
     console.log('🔄 Updating service worker...')
     await registration.update()
-
-    console.log('🔄 Requesting notification permission...')
-    const permission = await Notification.requestPermission()
-    console.log('🔔 Permission status:', permission)
-
-    if (permission !== 'granted') {
-      console.warn('❌ Notifikasi ditolak oleh user')
-      return null
-    }
 
     console.log('🔄 Getting FCM token...')
     const token = await getToken(messaging, {
@@ -106,8 +107,15 @@ export const requestFCMToken = async () => {
 }
 
 export const onMessageListener = (callback) => {
-  onMessage(messaging, (payload) => {
+  return onMessage(messaging, (payload) => {
     console.log('📩 Foreground message:', payload)
-    callback(payload)
+    if (callback) callback(payload)
   })
 }
+
+// export const onMessageListener = (callback) => {
+//   onMessage(messaging, (payload) => {
+//     console.log('📩 Foreground message:', payload)
+//     callback(payload)
+//   })
+// }
