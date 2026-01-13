@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "cold-storage-winn"
-  }
+    "default": "monitor-cold-storage"
+  },
+  "targets": {},
+  "etags": {}
 }
