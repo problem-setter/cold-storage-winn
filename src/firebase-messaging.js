@@ -20,11 +20,11 @@ export const requestFCMToken = async () => {
     console.log('🔄 Starting FCM token request...')
 
     if (!('serviceWorker' in navigator)) {
-      console.warn('❌ Service Worker tidak didukung di browser ini')
+      console.error('❌ Service Worker tidak didukung di browser ini')
       return null
     }
     if (!('Notification' in window)) {
-      console.warn('❌ Notification API tidak didukung')
+      console.error('❌ Notification API tidak didukung')
       return null
     }
 
@@ -34,7 +34,7 @@ export const requestFCMToken = async () => {
     console.log('🔔 Permission status:', permission)
 
     if (permission !== 'granted') {
-      console.warn('❌ User denied notification permission')
+      console.error('❌ User denied notification permission or permission is:', permission)
       return null
     }
 
@@ -70,8 +70,16 @@ export const requestFCMToken = async () => {
     await registration.update()
 
     console.log('🔄 Getting FCM token...')
+    console.log('📋 Registration details:', {
+      active: !!registration.active,
+      scope: registration.scope,
+      installing: !!registration.installing,
+      waiting: !!registration.waiting
+    })
+    
     const token = await getToken(messaging, {
-      vapidKey: 'BIhjle0uOXfsqoHjHzHBAx_HOfyPiurz7fSAY3zHr7weDIAqOonhF9fFTsHyI6-u0lbnMyq-aiANKqFaofLlG_Q',
+      vapidKey: 'BIhjle0uOXfsqoHjHzHBAx_HOfyPiurz7fSAY3zHr7weDIAqOonhF9fFTsHyI6-u0lbnMyq-aiANKqFaofLlG_Q', 
+      // vapidKey: 'BBp0_jRFhug2mIO6qmgcQxK8hlj116mi6QGn4m1CE6Uk5IZd8lSSohwNalkIIsAKpjadIYlByvgLPdqwjqeQK-8', // not yours.
       serviceWorkerRegistration: registration
     })
 
@@ -83,18 +91,20 @@ export const requestFCMToken = async () => {
     console.log('✅ FCM token acquired:', token.substring(0, 20) + '...')
     localStorage.setItem('fcm_token', token)
 
-    // Send token to Supabase for storage
+    // Send token to Supabase for storage (works without login)
     try {
       const { supabase } = await import('./lib/supabase')
+      
+      // Try to get user, but save token even if not logged in
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        await supabase.from('fcm_tokens').upsert({
-          user_id: user.id,
-          token: token,
-          created_at: new Date().toISOString()
-        })
-        console.log('✅ Token saved to database')
-      }
+      
+      await supabase.from('fcm_tokens').upsert({
+        user_id: user?.id || 'anonymous', // Allow anonymous tokens
+        token: token,
+        device_info: navigator.userAgent.substring(0, 100), // Store device info
+        created_at: new Date().toISOString()
+      })
+      console.log('✅ Token saved to database')
     } catch (dbError) {
       console.warn('⚠️ Failed to save token to database:', dbError)
     }
@@ -113,9 +123,52 @@ export const onMessageListener = (callback) => {
   })
 }
 
-// export const onMessageListener = (callback) => {
-//   onMessage(messaging, (payload) => {
-//     console.log('📩 Foreground message:', payload)
-//     callback(payload)
-//   })
-// }
+// Show notification via Service Worker (works in WebView & browsers)
+export const showNotificationViaServiceWorker = async (title, options = {}) => {
+  try {
+    const registration = await navigator.serviceWorker.ready
+    if (registration && registration.showNotification) {
+      // Close all previous notifications with the same tag to force refresh
+      if (registration.getNotifications) {
+        try {
+          // Try direct tag-filtered fetch first
+          if (options.tag) {
+            const byTag = await registration.getNotifications({ tag: options.tag })
+            if (byTag && byTag.length) byTag.forEach(n => n.close())
+            else {
+              // Fallback: fetch all and filter manually (better WebView support)
+              const all = await registration.getNotifications()
+              all
+                .filter(n => n.tag === options.tag || n.data?.type === options.data?.type)
+                .forEach(n => n.close())
+            }
+          } else {
+            // If no tag provided but a type exists, close by type
+            if (options.data?.type) {
+              const all = await registration.getNotifications()
+              all
+                .filter(n => n.data?.type === options.data.type)
+                .forEach(n => n.close())
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ getNotifications not fully supported, skipping close step:', e)
+        }
+      }
+      
+      await registration.showNotification(title, {
+        icon: '/logo192.png',
+        badge: '/logo192.png',
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        tag: options.tag || `notif-${Date.now()}`,
+        ...options
+      })
+      console.log('✅ Notification shown via SW:', title)
+    } else {
+      console.warn('⚠️ Service Worker registration not available')
+    }
+  } catch (err) {
+    console.error('❌ Failed to show notification:', err)
+  }
+}

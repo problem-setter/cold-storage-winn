@@ -8,7 +8,7 @@ import LoginPage from './pages/LoginPage';
 import LogoutButton from './components/LogoutButton';
 import StatisticsPage from './pages/StatisticsPage';
 import ThemeToggle from './components/ThemeToggle';
-import { requestFCMToken, onMessageListener } from './firebase-messaging'; // ✅ TAMBAH INI
+import { requestFCMToken, onMessageListener, showNotificationViaServiceWorker } from './firebase-messaging'; // ✅ TAMBAH INI
 import './App.css';
 
 const AppLayout = ({ theme, onToggleTheme }) => {
@@ -57,10 +57,9 @@ function App() {
         onMessageListener((payload) => {
           console.log('📨 Global foreground message:', payload);
           const { title, body } = payload.notification || {};
-          if (title && Notification.permission === 'granted') {
-            new Notification(title, {
+          if (title) {
+            showNotificationViaServiceWorker(title, {
               body,
-              icon: '/logo192.png',
               tag: 'cold-storage-notification',
               requireInteraction: true,
               vibrate: [200, 100, 200]

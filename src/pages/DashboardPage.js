@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import './DashboardPage.css';
 import { supabase } from '../lib/supabase';
+import { showNotificationViaServiceWorker } from '../firebase-messaging';
 import { requestFCMToken } from '../firebase-messaging';
 
 /* ===== GREETING ===== */
@@ -14,9 +15,11 @@ const getJakartaGreeting = () => {
 };
 
 /* ===== KONSTANTA ===== */
-const TEMP_MIN = 30;
+const TEMP_MIN = 35;
 const TEMP_MAX = 80;
-const ALERT_COOLDOWN = 5 * 60 * 1000;
+const ALERT_COOLDOWN = 30 * 1000; // generic cooldown for non-temp alerts
+const TEMP_REPEAT_INTERVAL_MS = 15 * 1000; // repeat temperature alerts at most every 15s while in fault
+const TEMP_DELTA_THRESHOLD = 0.2; // resend if temperature changes >= 0.2°C while in fault
 
 const DashboardPage = () => {
   const [greeting, setGreeting] = useState(getJakartaGreeting());
@@ -29,6 +32,8 @@ const DashboardPage = () => {
 
   // TRACKER WAKTU NOTIF
   const alertTime = useRef({});
+  // Track last temperature notification sent (time and value)
+  const lastTempNotifyRef = useRef({ time: 0, value: null });
 
   const canNotify = (key) => {
     const now = Date.now();
@@ -45,7 +50,32 @@ const DashboardPage = () => {
 
   const notify = (title, body) => {
     if (Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/logo192.png' });
+      // Add timestamp to make each notification unique and visible
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('id-ID', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      });
+      
+      // Temperature: use a stable tag so the new one replaces the old
+      const isTemp = title.includes('Temperature');
+      const baseTag = isTemp ? 'temp' 
+        : title.includes('Compressor') ? 'comp'
+        : title.includes('Condenser') ? 'cond' 
+        : title.includes('Evaporator') ? 'evap'
+        : title.includes('SYSTEM') ? 'system'
+        : 'alert';
+      
+      showNotificationViaServiceWorker(title, {
+        body: `[${timeStr}] ${body}`,
+        // Temperature uses stable tag so we can actively close/replace old one
+        tag: isTemp ? 'temp-alert' : `${baseTag}-${Date.now()}`,
+        // Mark the type so SW close fallback can match by data.type
+        data: { type: isTemp ? 'temperature' : baseTag },
+        requireInteraction: true,
+        vibrate: [200, 100, 200]
+      });
     }
   };
 
@@ -139,14 +169,37 @@ const DashboardPage = () => {
     const prevTempFault = prev.suhu < TEMP_MIN || prev.suhu > TEMP_MAX;
     const currTempFault = current.suhu < TEMP_MIN || current.suhu > TEMP_MAX;
 
+    // Entering fault -> notify immediately (guard with generic cooldown)
     if (!prevTempFault && currTempFault && canNotify('temp_fault')) {
       notify(
         '🌡️ Temperature Fault',
         `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${TEMP_MIN}–${TEMP_MAX}°C)`
       );
+      lastTempNotifyRef.current = { time: Date.now(), value: current.suhu };
     }
+
+    // While staying in fault -> repeat on interval or meaningful change
+    if (currTempFault && prevTempFault) {
+      const now = Date.now();
+      const last = lastTempNotifyRef.current;
+      const timeOk = now - (last.time || 0) >= TEMP_REPEAT_INTERVAL_MS;
+      const deltaOk =
+        typeof last.value === 'number'
+          ? Math.abs(current.suhu - last.value) >= TEMP_DELTA_THRESHOLD
+          : true;
+      if (timeOk || deltaOk) {
+        notify(
+          '🌡️ Temperature Fault',
+          `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${TEMP_MIN}–${TEMP_MAX}°C)`
+        );
+        lastTempNotifyRef.current = { time: now, value: current.suhu };
+      }
+    }
+
+    // Exiting fault -> reset state
     if (prevTempFault && !currTempFault) {
       resetCooldown('temp_fault');
+      lastTempNotifyRef.current = { time: 0, value: null };
     }
 
     // UPDATE STATE TERAKHIR (WAJIB PALING BAWAH)
@@ -165,9 +218,33 @@ const DashboardPage = () => {
       if (data?.length) {
         setLatest(data[0]);
         prevRef.current = data[0];
+        
+        // Check if temperature is already out of bounds on first load
+        const tempFault = data[0].suhu < TEMP_MIN || data[0].suhu > TEMP_MAX;
+        if (tempFault && canNotify('temp_fault')) {
+          notify(
+            '🌡️ Temperature Fault',
+            `Suhu ${data[0].suhu.toFixed(1)}°C di luar batas aman (${TEMP_MIN}–${TEMP_MAX}°C)`
+          );
+        }
+        
+        // Check system and component status on first load
+        if (data[0].power_on === 0 && canNotify('system_off')) {
+          notify('🚨 SYSTEM OFF', 'Cold Storage SYSTEM mati');
+        }
+        if (data[0].comp_fault === 1 && canNotify('comp_fault')) {
+          notify('🚨 Compressor Fault', 'Gangguan pada compressor');
+        }
+        if (data[0].evap_fault === 1 && canNotify('evap_fault')) {
+          notify('🚨 Evaporator Fault', 'Gangguan pada evaporator');
+        }
+        if (data[0].cond_fault === 1 && canNotify('cond_fault')) {
+          notify('🚨 Condenser Fault', 'Gangguan pada condenser');
+        }
       }
     };
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ===== REALTIME ===== */
@@ -217,23 +294,30 @@ const DashboardPage = () => {
 
   // TEMP DEBUG BUTTON: trigger a local notification for testing
   const triggerDebugNotification = async () => {
-    const token = await requestFCMToken();
-    if (!token) {
-      alert('Permission/token unavailable. Please allow notifications.');
-      return;
-    }
+    try {
+      console.log('🔍 DEBUG: Notification.permission =', Notification.permission);
+      
+      const hasSW = await navigator.serviceWorker.ready;
+      if (!hasSW) {
+        alert('Service Worker not available');
+        return;
+      }
 
-    if (Notification.permission !== 'granted') {
-      alert('Notifications are blocked. Enable them in browser/OS settings.');
-      return;
-    }
+      if (Notification.permission !== 'granted') {
+        alert('Notifications blocked. Check browser/OS settings.');
+        return;
+      }
 
-    // Use a unique tag so each click shows a new notification
-    new Notification('🔔 Debug Notification', {
-      body: 'This is a test notification from the debug button.',
-      icon: '/logo192.png',
-      tag: `debug-${Date.now()}`
-    });
+      // Use Service Worker to show notification (WebView compatible)
+      await showNotificationViaServiceWorker('🔔 Debug Notification', {
+        body: 'This is a test notification from the debug button.',
+        tag: `debug-${Date.now()}`
+      });
+      console.log('✅ Debug notification shown');
+    } catch (err) {
+      console.error('❌ Debug notification error:', err);
+      alert('Error: ' + err.message);
+    }
   };
 
   return (
