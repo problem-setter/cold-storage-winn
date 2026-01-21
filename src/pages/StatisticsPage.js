@@ -70,14 +70,24 @@ export default function StatisticsPage() {
   const { data: rows, loading } = useHistoryData(date)
   // 🔍 DEBUG WIB RANGE (TARUH DI SINI)
 useEffect(() => {
-  if (!rows.length) return
+  if (!rows.length) {
+    console.log('❌ NO ROWS FETCHED')
+    return
+  }
 
-  const hours = rows.map(r =>
-    parseUTCToWIBDate(r.created_at).getHours()
-  )
+  const hours = rows.map(r => {
+    const wibDate = parseUTCToWIBDate(r.created_at)
+    return wibDate.getHours()
+  })
 
-  console.log('MIN WIB HOUR:', Math.min(...hours))
-  console.log('MAX WIB HOUR:', Math.max(...hours))
+  console.log('✅ TOTAL ROWS:', rows.length)
+  console.log('📊 HOURS IN DATA:', [...new Set(hours)].sort((a, b) => a - b))
+  console.log('⏰ MIN WIB HOUR:', Math.min(...hours))
+  console.log('⏰ MAX WIB HOUR:', Math.max(...hours))
+  console.log('📝 RAW ROWS:', rows.slice(0, 3).map(r => ({
+    created_at: r.created_at,
+    wibHour: parseUTCToWIBDate(r.created_at).getHours()
+  })))
 }, [rows])
 
 // build chart
@@ -114,7 +124,6 @@ useEffect(() => {
 
     rows.forEach(r => {
       const d = parseUTCToWIBDate(r.created_at)
-      console.log('WIB:', d.getHours(), r.suhu)
       let i = 0
 
       if (period === 'hour') i = d.getHours()
@@ -123,6 +132,13 @@ useEffect(() => {
       if (period === 'month') i = d.getMonth()
 
       buckets[i].push(sensors[sensor].get(r))
+    })
+
+    console.log('🔍 BUILDCHART DEBUG:', {
+      period,
+      buckets_count: buckets.length,
+      filled_buckets: buckets.filter(b => b.length > 0).length,
+      buckets_detail: buckets.map((b, i) => ({ hour: i, count: b.length }))
     })
 
     const values = buckets.map(b => {

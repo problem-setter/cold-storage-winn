@@ -22,12 +22,22 @@ export const todayWIBISO = () =>
 
 // 🔹 RANGE 1 HARI WIB → UTC (UNTUK QUERY)
 // WIB = UTC+7
+// Misal: 21 Jan WIB 00:00 = 20 Jan UTC 17:00
+// Misal: 21 Jan WIB 23:59 = 21 Jan UTC 16:59
 export const wibDayRangeToUTC = (dateISO) => {
+  // Mulai hari: YYYY-MM-DD 00:00 WIB = YYYY-MM-DD 00:00 UTC dikurangi 7 jam
   const startUTC = new Date(`${dateISO}T00:00:00Z`)
   startUTC.setUTCHours(startUTC.getUTCHours() - 7)
 
+  // Akhir hari: YYYY-MM-DD 23:59:59 WIB = YYYY-MM-DD 23:59:59 UTC dikurangi 7 jam
   const endUTC = new Date(`${dateISO}T23:59:59.999Z`)
   endUTC.setUTCHours(endUTC.getUTCHours() - 7)
+
+  console.log('DEBUG wibDayRangeToUTC:', {
+    input: dateISO,
+    startUTC: startUTC.toISOString(),
+    endUTC: endUTC.toISOString()
+  })
 
   return {
     startUTC: startUTC.toISOString(),

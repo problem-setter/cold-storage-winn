@@ -11,23 +11,45 @@ export function useHistoryData(date = null, refreshMs = 10000) {
 
     async function load() {
       setLoading(true)
-      let query = supabase
-  .from('cold_storage')
-  .select('*')
-  .order('created_at', { ascending: true })
+      
+      try {
+        const PAGE_LIMIT = 1000
+        let allData = []
+        let from = 0
+        let done = false
 
-if (date) {
-  const { startUTC, endUTC } = wibDayRangeToUTC(date)
-  query = query
-    .gte('created_at', startUTC)
-    .lte('created_at', endUTC)
-}
+        while (!done) {
+          let query = supabase
+            .from('cold_storage')
+            .select('*')
+            .order('created_at', { ascending: true })
+            .range(from, from + PAGE_LIMIT - 1)
 
-const { data, error } = await query
+          if (date) {
+            const { startUTC, endUTC } = wibDayRangeToUTC(date)
+            query = query
+              .gte('created_at', startUTC)
+              .lte('created_at', endUTC)
+          }
 
+          const { data: pageData, error } = await query
 
-      if (!error) setData(data || [])
-      setLoading(false)
+          if (error) throw error
+
+          allData.push(...(pageData || []))
+
+          if ((pageData || []).length < PAGE_LIMIT) done = true
+          else from += PAGE_LIMIT
+        }
+
+        console.log('✅ useHistoryData: Total rows fetched:', allData.length)
+        setData(allData)
+      } catch (err) {
+        console.error('❌ useHistoryData error:', err)
+        setData([])
+      } finally {
+        setLoading(false)
+      }
     }
 
     load()
