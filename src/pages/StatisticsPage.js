@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+// ===== IMPORT =====
+import { useState, useEffect } from 'react'
+import { Line, Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -9,11 +10,14 @@ import {
   BarElement,
   Title,
   Tooltip,
-  Legend,
-} from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
-import './StatisticsPage.css';
+  Legend
+} from 'chart.js'
 
+import { useHistoryData } from '../hooks/useHistoryData'
+import { parseUTCToWIBDate, todayWIBISO } from '../utils/time'
+import './StatisticsPage.css'
+
+// ===== REGISTER CHART =====
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -23,17 +27,16 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend
-);
+)
 
-const DAYS = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
-const MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
 
 export default function StatisticsPage() {
-  const [sensor, setSensor] = useState('temperature');
-  const [period, setPeriod] = useState('hour');
-  const [date, setDate] = useState(new Date().toISOString().slice(0,10));
-  const [chartData, setChartData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [sensor, setSensor] = useState('temperature')
+  const [period, setPeriod] = useState('hour')
+  const [date, setDate] = useState(todayWIBISO())
+  const [chartData, setChartData] = useState(null)
 
   const sensors = {
     temperature: {
@@ -44,135 +47,169 @@ export default function StatisticsPage() {
     compressor: {
       label: 'Kompresor Aktif (%)',
       type: 'bar',
-      get: r => r.comp_on ? 1 : 0
+      get: r => (r.comp_on ? 1 : 0)
     },
     evaporator: {
       label: 'Evaporator Aktif (%)',
       type: 'bar',
-      get: r => r.evap_on ? 1 : 0
+      get: r => (r.evap_on ? 1 : 0)
     },
     condenser: {
       label: 'Kondensor Aktif (%)',
       type: 'bar',
-      get: r => r.cond_on ? 1 : 0
+      get: r => (r.cond_on ? 1 : 0)
     },
     system: {
       label: 'Sistem Menyala (%)',
       type: 'bar',
-      get: r => r.power_on ? 1 : 0
+      get: r => (r.power_on ? 1 : 0)
     }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, [sensor, period, date]);
-
-  async function loadData() {
-    setLoading(true);
-
-    let start, end;
-    const now = new Date();
-
-    if (period === 'hour') {
-      start = new Date(date); start.setHours(0,0,0,0);
-      end = new Date(date); end.setHours(23,59,59,999);
-    } else {
-      end = now;
-      start = new Date(now);
-      if (period === 'day') start.setDate(now.getDate() - 6);
-      if (period === 'week') start.setMonth(now.getMonth() - 1);
-      if (period === 'month') start.setFullYear(now.getFullYear() - 1);
-    }
-
-    const { data } = await supabase
-      .from('cold_storage')
-      .select('*')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-      .order('created_at');
-
-    setChartData(buildChart(data || []));
-    setLoading(false);
   }
 
+  // ✅ PANGGIL HOOK DI SINI (BENAR)
+  const { data: rows, loading } = useHistoryData(date)
+  // 🔍 DEBUG WIB RANGE (TARUH DI SINI)
+useEffect(() => {
+  if (!rows.length) return
+
+  const hours = rows.map(r =>
+    parseUTCToWIBDate(r.created_at).getHours()
+  )
+
+  console.log('MIN WIB HOUR:', Math.min(...hours))
+  console.log('MAX WIB HOUR:', Math.max(...hours))
+}, [rows])
+
+// build chart
+useEffect(() => {
+  setChartData(buildChart(rows))
+  console.log('STAT ROWS:', rows.length)
+}, [rows, sensor, period])
+
   function buildChart(rows) {
-    let labels = [];
-    let buckets = [];
+    let labels = []
+    let buckets = []
 
     if (period === 'hour') {
-      labels = [...Array(24)].map((_,i)=>`${i.toString().padStart(2,'0')}:00`);
-      buckets = Array.from({length:24},()=>[]);
+      labels = [...Array(24)].map(
+        (_, i) => `${i.toString().padStart(2, '0')}:00`
+      )
+      buckets = Array.from({ length: 24 }, () => [])
     }
+
     if (period === 'day') {
-      labels = DAYS;
-      buckets = Array.from({length:7},()=>[]);
+      labels = DAYS
+      buckets = Array.from({ length: 7 }, () => [])
     }
+
     if (period === 'week') {
-      labels = ['Minggu 1','Minggu 2','Minggu 3','Minggu 4','Minggu 5'];
-      buckets = Array.from({length:5},()=>[]);
+      labels = ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4', 'Minggu 5']
+      buckets = Array.from({ length: 5 }, () => [])
     }
+
     if (period === 'month') {
-      labels = MONTHS;
-      buckets = Array.from({length:12},()=>[]);
+      labels = MONTHS
+      buckets = Array.from({ length: 12 }, () => [])
     }
 
     rows.forEach(r => {
-      const d = new Date(r.created_at);
-      let i = 0;
-      if (period === 'hour') i = d.getHours();
-      if (period === 'day') i = d.getDay();
-      if (period === 'week') i = Math.min(4, Math.floor((d.getDate()-1)/7));
-      if (period === 'month') i = d.getMonth();
-      buckets[i].push(sensors[sensor].get(r));
-    });
+      const d = parseUTCToWIBDate(r.created_at)
+      console.log('WIB:', d.getHours(), r.suhu)
+      let i = 0
+
+      if (period === 'hour') i = d.getHours()
+      if (period === 'day') i = d.getDay()
+      if (period === 'week') i = Math.min(4, Math.floor((d.getDate() - 1) / 7))
+      if (period === 'month') i = d.getMonth()
+
+      buckets[i].push(sensors[sensor].get(r))
+    })
 
     const values = buckets.map(b => {
-      if (!b.length) return null;
-      if (sensor === 'temperature') {
-        return +(b.reduce((a,c)=>a+c,0)/b.length).toFixed(2);
-      }
-      return Math.round((b.filter(v=>v===1).length / b.length) * 100);
-    });
+  if (!b.length) return 0
+
+  if (sensor === 'temperature') {
+    return +(
+      b.reduce((a, c) => a + c, 0) / b.length
+    ).toFixed(2)
+  }
+
+  return Math.round((b.filter(v => v === 1).length / b.length) * 100)
+})
 
     return {
       labels,
-      datasets: [{
-        label: sensors[sensor].label,
-        data: values,
-        backgroundColor: sensor === 'temperature'
-          ? 'rgba(37,99,235,0.25)'
-          : 'rgba(16,185,129,0.85)',
-        borderColor: '#2563eb',
-        fill: sensor === 'temperature',
-        tension: 0.35
-      }]
-    };
+      datasets: [
+        {
+          label: sensors[sensor].label,
+          data: values,
+          spanGaps: false, 
+          backgroundColor:
+            sensor === 'temperature'
+              ? 'rgba(37,99,235,0.25)'
+              : 'rgba(16,185,129,0.85)',
+          borderColor: '#2563eb',
+          fill: sensor === 'temperature',
+          tension: 0.35
+        }
+      ]
+    }
+  }
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          boxWidth: 12,
+          font: { size: 12 }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { font: { size: 11 } }
+      },
+      y: {
+        ticks: { font: { size: 11 } }
+      }
+    }
   }
 
   return (
     <main className="page statistics-page">
       <div className="statistics-title">
         <h1>Analisis Grafik</h1>
-        <span>Pilih rentang waktu dan jenis sensor untuk melihat grafik data secara mendetail.</span>
+        <span>
+          Pilih rentang waktu dan jenis sensor untuk melihat grafik data secara
+          mendetail.
+        </span>
       </div>
 
       <div className="statistics-menu">
-        <select value={sensor} onChange={e=>setSensor(e.target.value)}>
-          {Object.entries(sensors).map(([k,v])=>(
-            <option key={k} value={k}>{v.label}</option>
+        <select value={sensor} onChange={e => setSensor(e.target.value)}>
+          {Object.entries(sensors).map(([k, v]) => (
+            <option key={k} value={k}>
+              {v.label}
+            </option>
           ))}
         </select>
 
         {period === 'hour' && (
-          <input type="date" value={date} onChange={e=>setDate(e.target.value)} />
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+          />
         )}
 
-        <div className="filter-menu">
-          {['hour','day','week','month'].map(p=>(
+        <div className="filter-menu horizontal-scroll">
+          {['hour', 'day', 'week', 'month'].map(p => (
             <div
               key={p}
-              className={`filter-pill ${period===p?'active':''}`}
-              onClick={()=>setPeriod(p)}
+              className={`filter-pill ${period === p ? 'active' : ''}`}
+              onClick={() => setPeriod(p)}
             >
               {p.toUpperCase()}
             </div>
@@ -182,14 +219,17 @@ export default function StatisticsPage() {
 
       <div className="statistics-display">
         {loading && <p>Memuat data…</p>}
+
         {!loading && chartData && (
           <div className="chart-container">
-            {sensors[sensor].type === 'line'
-              ? <Line data={chartData} />
-              : <Bar data={chartData} />}
+            {sensors[sensor].type === 'line' ? (
+              <Line data={chartData} options={chartOptions} />
+            ) : (
+              <Bar data={chartData} options={chartOptions} />
+            )}
           </div>
         )}
       </div>
     </main>
-  );
+  )
 }

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import './HistoryPage.css';
+import { formatWIB, todayWIBISO, wibDayRangeToUTC } from '../utils/time';
 
 /* 🔽 LIBRARY EXPORT */
 import jsPDF from 'jspdf';
@@ -9,8 +10,16 @@ import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
 const PAGE_SIZE = 20;
+const AUTO_REFRESH_INTERVAL = 10000; // 10 detik
+const EXPORT_TITLE = 'Riwayat Data Sistem';
 
-/* ✅ TANGGAL LOKAL */
+/* ✅ FORMAT TANGGAL dd-mm-yyyy */
+const formatDateDMY = (isoDate) => {
+  const [y, m, d] = isoDate.split('-');
+  return `${d}-${m}-${y}`;
+};
+
+/* ✅ TANGGAL LOKAL (yyyy-mm-dd untuk input date) */
 const todayLocalISO = () => {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -30,34 +39,25 @@ const HistoryPage = () => {
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
-  useEffect(() => {
-    fetchHistory();
-    // eslint-disable-next-line
-  }, [selectedDate, showFaultOnly, page]);
+  const autoReloadRef = useRef(null);
 
   /* ==========================
-     📌 FETCH UNTUK TAMPILAN (PAGINATION)
+     📌 FETCH DATA (TABLE)
   ========================== */
-  const fetchHistory = async () => {
-    setLoading(true);
+  const fetchHistory = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
 
     try {
-      const startDate = new Date(selectedDate);
-      startDate.setHours(0, 0, 0, 0);
-
-      const endDate = new Date(selectedDate);
-      endDate.setDate(endDate.getDate() + 1);
-      endDate.setHours(0, 0, 0, 0);
-
+     const { startUTC, endUTC } = wibDayRangeToUTC(selectedDate)
       const from = page * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
       let query = supabase
         .from('cold_storage')
         .select('*', { count: 'exact' })
-        .gte('created_at', startDate.toISOString())
-        .lt('created_at', endDate.toISOString());
+        .gte('created_at', startUTC)
+        .lte('created_at', endUTC);
 
       if (showFaultOnly) {
         query = query.or(
@@ -65,11 +65,10 @@ const HistoryPage = () => {
         );
       }
 
-      query = query
+      const { data, error, count } = await query
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      const { data, error, count } = await query;
       if (error) throw error;
 
       setRows(data || []);
@@ -80,50 +79,70 @@ const HistoryPage = () => {
       setRows([]);
       setTotalPages(1);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   /* ==========================
-     📌 FETCH KHUSUS EXPORT (SEMUA DATA)
+     🔁 AUTO RELOAD
   ========================== */
-  const fetchAllForExport = async () => {
-    const startDate = new Date(selectedDate);
-    startDate.setHours(0, 0, 0, 0);
+  useEffect(() => {
+    fetchHistory();
 
-    const endDate = new Date(selectedDate);
-    endDate.setDate(endDate.getDate() + 1);
-    endDate.setHours(0, 0, 0, 0);
-
-    let query = supabase
-      .from('cold_storage')
-      .select('*')
-      .gte('created_at', startDate.toISOString())
-      .lt('created_at', endDate.toISOString())
-      .order('created_at', { ascending: false });
-
-    if (showFaultOnly) {
-      query = query.or(
-        'comp_fault.eq.1,evap_fault.eq.1,cond_fault.eq.1,temp_fault.eq.1'
-      );
+    if (autoReloadRef.current) {
+      clearInterval(autoReloadRef.current);
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    autoReloadRef.current = setInterval(() => {
+      fetchHistory(true);
+    }, AUTO_REFRESH_INTERVAL);
 
-    return data || [];
+    return () => clearInterval(autoReloadRef.current);
+    // eslint-disable-next-line
+  }, [selectedDate, showFaultOnly, page]);
+
+  /* ==========================
+     📌 FETCH SEMUA DATA (EXPORT)
+  ========================== */
+  const fetchAllForExport = async () => {
+    const startUTC = new Date(`${selectedDate}T00:00:00+07:00`).toISOString();
+    const endUTC   = new Date(`${selectedDate}T23:59:59+07:00`).toISOString();
+
+    const PAGE_LIMIT = 1000;
+    let allData = [];
+    let from = 0;
+    let done = false;
+
+    while (!done) {
+      let query = supabase
+        .from('cold_storage')
+        .select('*')
+        .gte('created_at', startUTC)
+        .lte('created_at', endUTC)
+        .order('created_at', { ascending: true })
+        .range(from, from + PAGE_LIMIT - 1);
+
+      if (showFaultOnly) {
+        query = query.or(
+          'comp_fault.eq.1,evap_fault.eq.1,cond_fault.eq.1,temp_fault.eq.1'
+        );
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      allData.push(...data);
+
+      if (data.length < PAGE_LIMIT) done = true;
+      else from += PAGE_LIMIT;
+    }
+
+    return allData;
   };
 
-  const formatTime = (ts) =>
-    new Date(ts).toLocaleString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-
+  /* ==========================
+     🧱 RENDER HELPER
+  ========================== */
   const renderStatus = (value) => (
     <span className={`badge ${value ? 'on' : 'off'}`}>
       {value ? 'ON' : 'OFF'}
@@ -140,31 +159,28 @@ const HistoryPage = () => {
   };
 
   const renderFault = (row) =>
-    faultText(row) === 'Normal' ? (
-      <span className="fault-ok">✔ Normal</span>
-    ) : (
-      <span className="fault-bad">⚠ {faultText(row)}</span>
-    );
+    faultText(row) === 'Normal'
+      ? <span className="fault-ok">✔ Normal</span>
+      : <span className="fault-bad">⚠ {faultText(row)}</span>;
 
   /* ==========================
-     📄 EXPORT PDF (SEMUA DATA)
+     📄 EXPORT PDF
   ========================== */
   const exportPDF = async () => {
     const data = await fetchAllForExport();
-    if (data.length === 0) return alert('Tidak ada data untuk diexport');
+    if (!data.length) return alert('Tidak ada data untuk diexport');
+
+    const dateLabel = formatDateDMY(selectedDate);
 
     const doc = new jsPDF('l', 'mm', 'a4');
-    doc.text('Riwayat Data Sistem', 14, 15);
-    doc.text(`Tanggal: ${selectedDate}`, 14, 23);
+    doc.text(EXPORT_TITLE, 14, 15);
+    doc.text(`Tanggal: ${dateLabel}`, 14, 23);
 
     autoTable(doc, {
       startY: 30,
-      head: [[
-        'Waktu', 'Suhu', 'Sistem',
-        'Kompresor', 'Evaporator', 'Kondensor', 'Fault'
-      ]],
+      head: [['Waktu', 'Suhu', 'Sistem', 'Kompresor', 'Evaporator', 'Kondensor', 'Fault']],
       body: data.map(row => [
-        formatTime(row.created_at),
+        formatWIB(row.created_at),
         row.suhu?.toFixed(1),
         row.power_on ? 'ON' : 'OFF',
         row.comp_on ? 'ON' : 'OFF',
@@ -172,22 +188,24 @@ const HistoryPage = () => {
         row.cond_on ? 'ON' : 'OFF',
         faultText(row),
       ]),
-      styles: { fontSize: 9 }
+      styles: { fontSize: 9 },
     });
 
-    doc.save(`history_${selectedDate}_ALL.pdf`);
+    doc.save(`Riwayat_Data_${dateLabel}.pdf`);
   };
 
   /* ==========================
-     📊 EXPORT EXCEL (SEMUA DATA)
+     📊 EXPORT EXCEL
   ========================== */
   const exportExcel = async () => {
     const data = await fetchAllForExport();
-    if (data.length === 0) return alert('Tidak ada data untuk diexport');
+    if (!data.length) return alert('Tidak ada data untuk diexport');
+
+    const dateLabel = formatDateDMY(selectedDate);
 
     const sheet = XLSX.utils.json_to_sheet(
       data.map(row => ({
-        Waktu: formatTime(row.created_at),
+        Waktu: formatWIB(row.created_at),
         Suhu: row.suhu,
         Sistem: row.power_on ? 'ON' : 'OFF',
         Kompresor: row.comp_on ? 'ON' : 'OFF',
@@ -199,9 +217,9 @@ const HistoryPage = () => {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet, 'History');
-
     const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    saveAs(new Blob([buffer]), `history_${selectedDate}_ALL.xlsx`);
+
+    saveAs(new Blob([buffer]), `Riwayat_Data_${dateLabel}.xlsx`);
   };
 
   return (
@@ -243,32 +261,34 @@ const HistoryPage = () => {
 
         {!loading && rows.length > 0 && (
           <>
-            <table className="history-table">
-              <thead>
-                <tr>
-                  <th>Waktu</th>
-                  <th>Suhu</th>
-                  <th>Sistem</th>
-                  <th>Kompresor</th>
-                  <th>Evaporator</th>
-                  <th>Kondensor</th>
-                  <th>Fault</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{formatTime(row.created_at)}</td>
-                    <td>{row.suhu?.toFixed(1)}</td>
-                    <td>{renderStatus(row.power_on)}</td>
-                    <td>{renderStatus(row.comp_on)}</td>
-                    <td>{renderStatus(row.evap_on)}</td>
-                    <td>{renderStatus(row.cond_on)}</td>
-                    <td>{renderFault(row)}</td>
+            <div className="table-scroll">
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>Waktu</th>
+                    <th>Suhu</th>
+                    <th>Sistem</th>
+                    <th>Kompresor</th>
+                    <th>Evaporator</th>
+                    <th>Kondensor</th>
+                    <th>Fault</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{formatWIB(row.created_at)}</td>
+                      <td>{row.suhu?.toFixed(1)}</td>
+                      <td>{renderStatus(row.power_on)}</td>
+                      <td>{renderStatus(row.comp_on)}</td>
+                      <td>{renderStatus(row.evap_on)}</td>
+                      <td>{renderStatus(row.cond_on)}</td>
+                      <td>{renderFault(row)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <div className="pagination">
               <button disabled={page === 0} onClick={() => setPage(0)}>⏮ First</button>

@@ -12,17 +12,15 @@ const LogoutButton = () => {
   };
 
   return (
-    <div className="logout-wrapper">
-      <button
-        type="button"
-        className="logout-button"
-        onClick={handleLogout}
-        aria-label="Logout"
-      >
-        <span className="logout-icon" aria-hidden="true">🚪</span>
-        <span className="logout-text">Log out</span>
-      </button>
-    </div>
+    <button
+      type="button"
+      className="logout-fab"
+      onClick={handleLogout}
+      aria-label="Logout"
+      title="Logout"
+    >
+      <span className="logout-icon" aria-hidden="true">🚪</span>
+    </button>
   );
 };
 

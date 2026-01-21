@@ -1,0 +1,70 @@
+/* Temperature Settings Styles */
+.temperature-settings {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.temperature-settings h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.temp-inputs {
+  display: flex;
+  gap: 1rem;
+  align-items: end;
+}
+
+.temp-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.temp-input-group label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.temp-input-group input {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+  transition: border-color 0.2s ease;
+}
+
+.temp-input-group input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.temp-range-display {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+  font-weight: 500;
+  text-align: center;
+  padding: 0.5rem;
+  background: var(--bg-strong);
+  border-radius: 6px;
+}
+
+@media (max-width: 640px) {
+  .temp-inputs {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
