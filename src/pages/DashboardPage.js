@@ -114,7 +114,7 @@ const DashboardPage = () => {
           setTempMax(p.new.temp_max);
           resetCooldown('temp_fault');
           lastTempNotifyRef.current = { time: 0, value: null };
-          prevRef.current = null;
+          // prevRef.current = null;
         }
       })
       .subscribe();
@@ -157,25 +157,59 @@ const DashboardPage = () => {
     return () => clearInterval(i);
   }, []);
 
-  /* ===== LOGIKA NOTIF ===== */
-const processData = (current) => {
+  const processData = (current) => {
   if (!current) return;
 
   const prev = prevRef.current;
+  const { min, max } = tempRangeRef.current;
+
+  /* 🔔 FIRST LOAD CHECK */
   if (!prev) {
+    const tempFault = current.suhu < min || current.suhu > max;
+    if (tempFault && canNotify('temp_fault')) {
+      notify(
+        '🌡️ Temperature Out of Range',
+        `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${min}–${max}°C)`
+      );
+    }
+
+    if (current.temp_fault === 1 && canNotify('temp_pin')) {
+      notify(
+        '🚨 Temperature Sensor Fault',
+        'Terjadi gangguan pada sensor suhu'
+      );
+    }
+
+    // Check component OFF on first load
+    if (current.comp_fault === 1 && canNotify('comp_fault')) {
+      notify(
+        '🔧 Compressor Fault',
+        'Kompressor mengalami gangguan'
+      );
+    }
+
+    if (current.evap_fault === 1 && canNotify('evap_fault')) {
+      notify(
+        '❄️ Evaporator Fault',
+        'Evaporator mengalami gangguan'
+      );
+    }
+
+    if (current.cond_fault === 1 && canNotify('cond_fault')) {
+      notify(
+        '🌊 Condenser Fault',
+        'Kondenser mengalami gangguan'
+      );
+    }
+
     prevRef.current = current;
     return;
   }
 
-  /* ================================
-     1️⃣ TEMPERATURE FAULT (DS18B20)
-     ================================ */
-  const { min, max } = tempRangeRef.current;
-
+  /* 1️⃣ TEMP RANGE */
   const prevTempFault = prev.suhu < min || prev.suhu > max;
   const currTempFault = current.suhu < min || current.suhu > max;
 
-  // 🔔 Baru masuk fault
   if (!prevTempFault && currTempFault && canNotify('temp_fault')) {
     notify(
       '🌡️ Temperature Out of Range',
@@ -183,14 +217,11 @@ const processData = (current) => {
     );
   }
 
-  // ✅ Kembali normal
   if (prevTempFault && !currTempFault) {
     resetCooldown('temp_fault');
   }
 
-  /* ================================
-     2️⃣ TEMPERATURE FAULT (PIN)
-     ================================ */
+  /* 2️⃣ SENSOR PIN */
   const prevTempPinFault = prev.temp_fault === 1;
   const currTempPinFault = current.temp_fault === 1;
 
@@ -203,6 +234,111 @@ const processData = (current) => {
 
   if (prevTempPinFault && !currTempPinFault) {
     resetCooldown('temp_pin');
+  }
+
+  /* 3️⃣ COMPRESSOR STATUS (ON/OFF) */
+  const prevCompOn = prev.comp_on === 1;
+  const currCompOn = current.comp_on === 1;
+
+  if (prevCompOn && !currCompOn && canNotify('comp_off')) {
+    notify(
+      '🔴 Kompressor Mati',
+      'Kompressor telah berhenti'
+    );
+  }
+
+  if (!prevCompOn && currCompOn) {
+    resetCooldown('comp_off');
+  }
+
+  /* 4️⃣ COMPRESSOR FAULT */
+  const prevCompFault = prev.comp_fault === 1;
+  const currCompFault = current.comp_fault === 1;
+
+  if (!prevCompFault && currCompFault && canNotify('comp_fault')) {
+    notify(
+      '🔧 Kompressor Error',
+      'Kompressor mengalami gangguan/error'
+    );
+  }
+
+  if (prevCompFault && !currCompFault) {
+    resetCooldown('comp_fault');
+  }
+
+  /* 5️⃣ EVAPORATOR STATUS (ON/OFF) */
+  const prevEvapOn = prev.evap_on === 1;
+  const currEvapOn = current.evap_on === 1;
+
+  if (prevEvapOn && !currEvapOn && canNotify('evap_off')) {
+    notify(
+      '🔴 Evaporator Mati',
+      'Evaporator telah berhenti'
+    );
+  }
+
+  if (!prevEvapOn && currEvapOn) {
+    resetCooldown('evap_off');
+  }
+
+  /* 6️⃣ EVAPORATOR FAULT */
+  const prevEvapFault = prev.evap_fault === 1;
+  const currEvapFault = current.evap_fault === 1;
+
+  if (!prevEvapFault && currEvapFault && canNotify('evap_fault')) {
+    notify(
+      '❄️ Evaporator Error',
+      'Evaporator mengalami gangguan/error'
+    );
+  }
+
+  if (prevEvapFault && !currEvapFault) {
+    resetCooldown('evap_fault');
+  }
+
+  /* 7️⃣ CONDENSER STATUS (ON/OFF) */
+  const prevCondOn = prev.cond_on === 1;
+  const currCondOn = current.cond_on === 1;
+
+  if (prevCondOn && !currCondOn && canNotify('cond_off')) {
+    notify(
+      '🔴 Kondenser Mati',
+      'Kondenser telah berhenti'
+    );
+  }
+
+  if (!prevCondOn && currCondOn) {
+    resetCooldown('cond_off');
+  }
+
+  /* 8️⃣ CONDENSER FAULT */
+  const prevCondFault = prev.cond_fault === 1;
+  const currCondFault = current.cond_fault === 1;
+
+  if (!prevCondFault && currCondFault && canNotify('cond_fault')) {
+    notify(
+      '🌊 Kondenser Error',
+      'Kondenser mengalami gangguan/error'
+    );
+  }
+
+  if (prevCondFault && !currCondFault) {
+    resetCooldown('cond_fault');
+  }
+
+  /* 9️⃣ SYSTEM POWER STATUS (ON/OFF) */
+  const prevPowerOn = prev.power_on === 1;
+  const currPowerOn = current.power_on === 1;
+
+  if (prevPowerOn && !currPowerOn && canNotify('power_off')) {
+    notify(
+      '⚡ Sistem Mati',
+      'Sistem cold storage telah mati'
+    );
+  }
+
+  if (!prevPowerOn && currPowerOn) {
+    resetCooldown('power_off');
   }
 
   prevRef.current = current;
@@ -219,7 +355,7 @@ const processData = (current) => {
 
       if (data?.length) {
         setLatest(data[0]);
-        prevRef.current = data[0];
+        // prevRef.current = data[0];
       }
     };
     load();
