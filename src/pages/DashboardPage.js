@@ -76,13 +76,31 @@ const DashboardPage = () => {
 
       const isTemp = title.includes('Temperature');
       const baseTag = isTemp ? 'temp' : 'alert';
+      const fullBody = `[${timeStr}] ${body}`;
 
+      // Show notification on frontend
       showNotificationViaServiceWorker(title, {
-        body: `[${timeStr}] ${body}`,
+        body: fullBody,
         tag: isTemp ? 'temp-alert' : `${baseTag}-${Date.now()}`,
         requireInteraction: true,
         vibrate: [200, 100, 200]
       });
+
+      // Send to backend for FCM (akan dikirim ke semua device)
+      const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+      if (supabaseUrl) {
+        fetch(`${supabaseUrl}/functions/v1/send-fcm`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('supabase_token') || ''}`
+          },
+          body: JSON.stringify({
+            title: title,
+            body: fullBody
+          })
+        }).catch(err => console.log('FCM send error:', err));
+      }
     }
   };
 
@@ -368,6 +386,24 @@ const DashboardPage = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cold_storage' }, (p) => {
         setLatest(p.new);
         processData(p.new);
+
+        // Broadcast to all tabs via SharedWorker or localStorage
+        try {
+          localStorage.setItem('latest_cold_storage', JSON.stringify({
+            data: p.new,
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          console.log('Could not update localStorage');
+        }
+
+        // Notify service worker
+        if (navigator.serviceWorker?.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'DATA_UPDATE',
+            data: p.new
+          });
+        }
       })
       .subscribe();
 

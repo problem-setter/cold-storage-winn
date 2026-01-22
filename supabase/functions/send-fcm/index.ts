@@ -10,8 +10,12 @@ admin.initializeApp({
   }),
 });
 
-serve(async () => {
+serve(async (req) => {
   try {
+    // Parse request body
+    const body = await req.json().catch(() => ({}));
+    const { title, body: msgBody } = body;
+
     // Ambil token device dari Supabase
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -30,8 +34,8 @@ serve(async () => {
 
     const message = {
       notification: {
-        title: "🚨 Cold Storage ALERT",
-        body: "Fault terdeteksi pada sistem!",
+        title: title || "🚨 Cold Storage ALERT",
+        body: msgBody || "Fault terdeteksi pada sistem!",
       },
       tokens: tokens.map((t: any) => t.token),
     };
