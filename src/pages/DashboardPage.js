@@ -22,9 +22,24 @@ const DashboardPage = () => {
   const [greeting, setGreeting] = useState(getJakartaGreeting());
   const [latest, setLatest] = useState(null);
 
-  const [tempMin, setTempMin] = useState(35);
-  const [tempMax, setTempMax] = useState(80);
+  const [tempMin, setTempMin] = useState('35');
+  const [tempMax, setTempMax] = useState('80');
   const [savingTemp, setSavingTemp] = useState(false);
+
+  const isTempEmpty =
+    tempMin === '' ||
+    tempMax === '' ||
+    tempMin === null ||
+    tempMax === null;
+
+  const minNum = Number(tempMin);
+  const maxNum = Number(tempMax);
+
+  const isRangeInvalid =
+    !isTempEmpty &&
+    !isNaN(minNum) &&
+    !isNaN(maxNum) &&
+    minNum >= maxNum;
 
   const prevRef = useRef(null);
   const alertTime = useRef({});
@@ -34,7 +49,7 @@ const DashboardPage = () => {
   const tempRangeRef = useRef({ min: tempMin, max: tempMax });
 
   useEffect(() => {
-    tempRangeRef.current = { min: tempMin, max: tempMax };
+    tempRangeRef.current = { min: Number(tempMin), max: Number(tempMax) };
   }, [tempMin, tempMax]);
 
   const canNotify = (key) => {
@@ -99,6 +114,7 @@ const DashboardPage = () => {
           setTempMax(p.new.temp_max);
           resetCooldown('temp_fault');
           lastTempNotifyRef.current = { time: 0, value: null };
+          prevRef.current = null;
         }
       })
       .subscribe();
@@ -108,7 +124,15 @@ const DashboardPage = () => {
 
   /* ===== SIMPAN RANGE SUHU USER ===== */
   const saveTempRange = async () => {
-    if (tempMin >= tempMax) {
+    const min = Number(tempMin);
+    const max = Number(tempMax);
+
+    if (isNaN(min) || isNaN(max)) {
+      alert('Range suhu tidak boleh kosong');
+      return;
+    }
+
+    if (min >= max) {
       alert('Temp MIN harus lebih kecil dari Temp MAX');
       return;
     }
@@ -116,8 +140,8 @@ const DashboardPage = () => {
     setSavingTemp(true);
 
     await supabase.from('system_settings').insert({
-      temp_min: tempMin,
-      temp_max: tempMax
+      temp_min: min,
+      temp_max: max
     });
 
     resetCooldown('temp_fault');
@@ -134,53 +158,55 @@ const DashboardPage = () => {
   }, []);
 
   /* ===== LOGIKA NOTIF ===== */
-  const processData = (current) => {
-    if (!current) return;
+const processData = (current) => {
+  if (!current) return;
 
-    const { min, max } = tempRangeRef.current;
-
-    const prev = prevRef.current;
-    if (!prev) {
-      prevRef.current = current;
-      return;
-    }
-
-    const prevTempFault = prev.suhu < min || prev.suhu > max;
-    const currTempFault = current.suhu < min || current.suhu > max;
-
-    if (!prevTempFault && currTempFault && canNotify('temp_fault')) {
-      notify(
-        '🌡️ Temperature Fault',
-        `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${min}–${max}°C)`
-      );
-      lastTempNotifyRef.current = { time: Date.now(), value: current.suhu };
-    }
-
-    if (currTempFault && prevTempFault) {
-      const now = Date.now();
-      const last = lastTempNotifyRef.current;
-      const timeOk = now - last.time >= TEMP_REPEAT_INTERVAL_MS;
-      const deltaOk =
-        typeof last.value === 'number'
-          ? Math.abs(current.suhu - last.value) >= TEMP_DELTA_THRESHOLD
-          : true;
-
-      if (timeOk || deltaOk) {
-        notify(
-          '🌡️ Temperature Fault',
-          `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${min}–${max}°C)`
-        );
-        lastTempNotifyRef.current = { time: now, value: current.suhu };
-      }
-    }
-
-    if (prevTempFault && !currTempFault) {
-      resetCooldown('temp_fault');
-      lastTempNotifyRef.current = { time: 0, value: null };
-    }
-
+  const prev = prevRef.current;
+  if (!prev) {
     prevRef.current = current;
-  };
+    return;
+  }
+
+  /* ================================
+     1️⃣ TEMPERATURE FAULT (DS18B20)
+     ================================ */
+  const { min, max } = tempRangeRef.current;
+
+  const prevTempFault = prev.suhu < min || prev.suhu > max;
+  const currTempFault = current.suhu < min || current.suhu > max;
+
+  // 🔔 Baru masuk fault
+  if (!prevTempFault && currTempFault && canNotify('temp_fault')) {
+    notify(
+      '🌡️ Temperature Out of Range',
+      `Suhu ${current.suhu.toFixed(1)}°C di luar batas aman (${min}–${max}°C)`
+    );
+  }
+
+  // ✅ Kembali normal
+  if (prevTempFault && !currTempFault) {
+    resetCooldown('temp_fault');
+  }
+
+  /* ================================
+     2️⃣ TEMPERATURE FAULT (PIN)
+     ================================ */
+  const prevTempPinFault = prev.temp_fault === 1;
+  const currTempPinFault = current.temp_fault === 1;
+
+  if (!prevTempPinFault && currTempPinFault && canNotify('temp_pin')) {
+    notify(
+      '🚨 Temperature Sensor Fault',
+      'Terjadi gangguan pada sensor suhu'
+    );
+  }
+
+  if (prevTempPinFault && !currTempPinFault) {
+    resetCooldown('temp_pin');
+  }
+
+  prevRef.current = current;
+};
 
   /* ===== LOAD AWAL ===== */
   useEffect(() => {
@@ -265,7 +291,7 @@ const DashboardPage = () => {
             <input
               type="number"
               value={tempMin}
-              onChange={(e) => setTempMin(Number(e.target.value))}
+              onChange={(e) => setTempMin(e.target.value)}
               className="temp-input"
             />
           </div>
@@ -274,11 +300,11 @@ const DashboardPage = () => {
             <input
               type="number"
               value={tempMax}
-              onChange={(e) => setTempMax(Number(e.target.value))}
+              onChange={(e) => setTempMax(e.target.value)}
               className="temp-input"
             />
           </div>
-          <button onClick={saveTempRange} disabled={savingTemp} className="temp-save-btn">
+          <button onClick={saveTempRange} disabled={savingTemp || isTempEmpty || isRangeInvalid} className="temp-save-btn">
             {savingTemp ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
