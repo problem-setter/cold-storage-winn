@@ -80,14 +80,15 @@ BEGIN
   -- If any notification should be sent, call the edge function via http
   IF title IS NOT NULL THEN
     -- Send via http request to edge function
-    PERFORM http_post(
-      'https://{SUPABASE_PROJECT_ID}.supabase.co/functions/v1/send-fcm',
-      jsonb_build_object(
-        'title', title,
-        'body', msg
-      ),
-      'Bearer {SUPABASE_SERVICE_ROLE_KEY}'
-    );
+    PERFORM
+      net.http_post(
+        url := 'https://ckugkbvbefkhniqnpnov.supabase.co/functions/v1/send-fcm',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNrdWdrYnZiZWZraG5pcW5wbm92Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc1MTI2NzcsImV4cCI6MjA4MzA4ODY3N30.hadRWP4M2CXUpIWj-iyS_XRD9Uktk4WHdP6-uW2s4G8'
+        ),
+        body := jsonb_build_object('title', title, 'body', msg)
+      );
   END IF;
 
   RETURN NEW;
