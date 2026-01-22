@@ -7,6 +7,7 @@ const LogoutButton = () => {
   const handleLogout = () => {
     const confirmed = window.confirm('Are you sure you want to log out?');
     if (confirmed) {
+      window.localStorage.removeItem('isLoggedIn');
       navigate('/');
     }
   };

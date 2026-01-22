@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import DashboardPage from './pages/DashboardPage';
 import FooterNav from './components/FooterNav';
 import Header from './components/Header';
@@ -13,7 +13,17 @@ import './App.css';
 
 const AppLayout = ({ theme, onToggleTheme }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const isLoginPage = location.pathname === '/';
+
+  useEffect(() => {
+    const isLoggedIn = window.localStorage.getItem('isLoggedIn') === 'true';
+    if (isLoggedIn && location.pathname === '/') {
+      navigate('/dashboard', { replace: true });
+    } else if (!isLoggedIn && location.pathname !== '/') {
+      navigate('/', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   return (
     <div className="app-shell">
@@ -46,6 +56,13 @@ function App() {
 
   /* ===== 🔥 FCM TOKEN (GLOBAL, SEKALI) ===== */
   useEffect(() => {
+    // Store Supabase URL untuk service worker
+    const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+    if (supabaseUrl) {
+      window.localStorage.setItem('supabase_url', supabaseUrl);
+      window.SUPABASE_URL = supabaseUrl;
+    }
+
     const initNotifications = async () => {
       console.log('🔥 REQUEST FCM TOKEN FROM APP');
       const token = await requestFCMToken();
@@ -60,7 +77,7 @@ function App() {
           if (title) {
             showNotificationViaServiceWorker(title, {
               body,
-              tag: 'cold-storage-notification',
+              tag: `notif-${title.replace(/[^a-z0-9]/gi, '')}-${Date.now()}`,
               requireInteraction: true,
               vibrate: [200, 100, 200]
             });

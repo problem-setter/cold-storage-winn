@@ -16,6 +16,7 @@ const LoginPage = () => {
 
     if (username === '123' && password === '123') {
       setError('');
+      window.localStorage.setItem('isLoggedIn', 'true');
       navigate('/dashboard', { replace: true });
     } else {
       setError('Failed to login. Invalid username or password.');

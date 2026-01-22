@@ -16,14 +16,15 @@ const messaging = firebase.messaging()
 
 // Store previous state for change detection
 let lastKnownState = null;
+let lastNotificationTime = {}; // Track last notification time
 
-// Check for changes periodically (every 5 seconds)
+// Check for changes periodically (every 2 seconds - lebih cepat)
 setInterval(() => {
   try {
     const stored = localStorage.getItem('latest_cold_storage');
     if (stored) {
       const current = JSON.parse(stored);
-      if (lastKnownState && current.data) {
+      if (lastKnownState && current.data && lastKnownState.data) {
         checkAndNotify(current.data, lastKnownState.data);
       }
       lastKnownState = current;
@@ -31,45 +32,65 @@ setInterval(() => {
   } catch (err) {
     console.error('[SW] Error checking state:', err);
   }
-}, 5000);
+}, 2000);
 
-// Check for changes and send FCM
+// Check for changes and send FCM - dengan multiple alerts support
 function checkAndNotify(current, prev) {
   if (!prev) return;
 
   const alerts = [];
+  const now = Date.now();
+  const MIN_INTERVAL = 500; // 500ms antar notifikasi tipe sama
+
+  // Check cooldown per alert type
+  const canSendAlert = (alertKey) => {
+    if (!lastNotificationTime[alertKey] || (now - lastNotificationTime[alertKey]) > MIN_INTERVAL) {
+      lastNotificationTime[alertKey] = now;
+      return true;
+    }
+    return false;
+  };
 
   // Kompressor
   if (current.comp_on !== prev.comp_on && prev.comp_on === 1 && current.comp_on === 0) {
-    alerts.push({ title: '🔴 Kompressor Mati', body: 'Kompressor telah berhenti' });
+    if (canSendAlert('comp_off')) alerts.push({ title: '🔴 Kompressor Mati', body: 'Kompressor telah berhenti', key: 'comp_off' });
   }
   if (current.comp_fault !== prev.comp_fault && prev.comp_fault === 0 && current.comp_fault === 1) {
-    alerts.push({ title: '🔧 Kompressor Error', body: 'Kompressor mengalami gangguan/error' });
+    if (canSendAlert('comp_fault')) alerts.push({ title: '🔧 Kompressor Error', body: 'Kompressor mengalami gangguan/error', key: 'comp_fault' });
   }
 
   // Evaporator
   if (current.evap_on !== prev.evap_on && prev.evap_on === 1 && current.evap_on === 0) {
-    alerts.push({ title: '🔴 Evaporator Mati', body: 'Evaporator telah berhenti' });
+    if (canSendAlert('evap_off')) alerts.push({ title: '🔴 Evaporator Mati', body: 'Evaporator telah berhenti', key: 'evap_off' });
   }
   if (current.evap_fault !== prev.evap_fault && prev.evap_fault === 0 && current.evap_fault === 1) {
-    alerts.push({ title: '❄️ Evaporator Error', body: 'Evaporator mengalami gangguan/error' });
+    if (canSendAlert('evap_fault')) alerts.push({ title: '❄️ Evaporator Error', body: 'Evaporator mengalami gangguan/error', key: 'evap_fault' });
   }
 
   // Condenser
   if (current.cond_on !== prev.cond_on && prev.cond_on === 1 && current.cond_on === 0) {
-    alerts.push({ title: '🔴 Kondenser Mati', body: 'Kondenser telah berhenti' });
+    if (canSendAlert('cond_off')) alerts.push({ title: '🔴 Kondenser Mati', body: 'Kondenser telah berhenti', key: 'cond_off' });
   }
   if (current.cond_fault !== prev.cond_fault && prev.cond_fault === 0 && current.cond_fault === 1) {
-    alerts.push({ title: '🌊 Kondenser Error', body: 'Kondenser mengalami gangguan/error' });
+    if (canSendAlert('cond_fault')) alerts.push({ title: '🌊 Kondenser Error', body: 'Kondenser mengalami gangguan/error', key: 'cond_fault' });
   }
 
   // System
   if (current.power_on !== prev.power_on && prev.power_on === 1 && current.power_on === 0) {
-    alerts.push({ title: '⚡ Sistem Mati', body: 'Sistem cold storage telah mati' });
+    if (canSendAlert('power_off')) alerts.push({ title: '⚡ Sistem Mati', body: 'Sistem cold storage telah mati', key: 'power_off' });
   }
 
-  // Send all alerts
+  // Send all alerts immediately
   alerts.forEach(alert => {
+    const uniqueTag = `alert-${alert.key}-${Date.now()}`;
+    self.registration.showNotification(alert.title, {
+      body: alert.body,
+      tag: uniqueTag,
+      requireInteraction: true,
+      vibrate: [200, 100, 200]
+    });
+    
+    // Juga kirim ke FCM
     sendFCMNotification(alert.title, alert.body);
   });
 }
@@ -77,7 +98,12 @@ function checkAndNotify(current, prev) {
 // Send FCM via edge function
 function sendFCMNotification(title, body) {
   try {
-    const supabaseUrl = 'https://your-supabase-url.supabase.co'; // Will be replaced by environment
+    // Get dari localStorage yang di-set di App.js, atau fallback
+    const supabaseUrl = localStorage.getItem('supabase_url') || window.SUPABASE_URL;
+    if (!supabaseUrl) {
+      console.warn('[SW] Supabase URL not available');
+      return;
+    }
     fetch(supabaseUrl + '/functions/v1/send-fcm', {
       method: 'POST',
       headers: {

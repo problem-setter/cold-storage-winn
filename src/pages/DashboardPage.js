@@ -14,7 +14,7 @@ const getJakartaGreeting = () => {
 };
 
 /* ===== KONSTANTA ===== */
-const ALERT_COOLDOWN = 30 * 1000;
+const ALERT_COOLDOWN = 2 * 1000; // Kurangi dari 30s ke 2s untuk allow multiple notif
 const TEMP_REPEAT_INTERVAL_MS = 15000;
 const TEMP_DELTA_THRESHOLD = 0.2;
 
@@ -78,10 +78,11 @@ const DashboardPage = () => {
       const baseTag = isTemp ? 'temp' : 'alert';
       const fullBody = `[${timeStr}] ${body}`;
 
-      // Show notification on frontend
+      // Show notification on frontend dengan unique tag
+      const uniqueTag = `notif-${title.replace(/[^a-z0-9]/gi, '')}-${Date.now()}`;
       showNotificationViaServiceWorker(title, {
         body: fullBody,
-        tag: isTemp ? 'temp-alert' : `${baseTag}-${Date.now()}`,
+        tag: uniqueTag,
         requireInteraction: true,
         vibrate: [200, 100, 200]
       });
