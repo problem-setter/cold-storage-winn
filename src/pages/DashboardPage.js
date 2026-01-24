@@ -411,7 +411,7 @@ const DashboardPage = () => {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  /* ===== POLLING BACKUP ===== */
+  /* ===== POLLING BACKUP (untuk sync saat SW inactive) ===== */
   useEffect(() => {
     const i = setInterval(async () => {
       const { data } = await supabase

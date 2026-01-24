@@ -21,7 +21,7 @@
       "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/dashboard",
   "display": "standalone",
   "theme_color": "#2563eb",
   "background_color": "#ffffff",
@@ -29,5 +29,23 @@
   "scope": "/",
   "categories": ["productivity", "utilities"],
   "lang": "id-ID",
-  "dir": "ltr"
+  "dir": "ltr",
+  "screenshots": [
+    {
+      "src": "logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Open dashboard",
+      "url": "/dashboard",
+      "icons": [{"src": "logo192.png", "sizes": "192x192"}]
+    }
+  ]
 }

@@ -333,3 +333,11 @@
     height: 220px;
   }
 }
+
+.chart-refresh-indicator {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 11px;
+  color: #94a3b8;
+}

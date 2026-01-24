@@ -29,7 +29,7 @@ ChartJS.register(
   Legend
 )
 
-const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+const DAYS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'] // Senin=0
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
 
 export default function StatisticsPage() {
@@ -66,8 +66,8 @@ export default function StatisticsPage() {
     }
   }
 
-  // ✅ PANGGIL HOOK DI SINI (BENAR)
-  const { data: rows, loading } = useHistoryData(date)
+  // ✅ PANGGIL HOOK DI SINI dengan period parameter
+  const { data: rows, loading, refreshing } = useHistoryData(date, 10000, period)
   // 🔍 DEBUG WIB RANGE (TARUH DI SINI)
 useEffect(() => {
   if (!rows.length) {
@@ -92,15 +92,24 @@ useEffect(() => {
 
 // build chart
 useEffect(() => {
+  // Jika periode berubah, refresh query untuk ambil data range yang tepat
+  // Saat ini sudah ambil full day (useHistoryData), tapi bisa di-optimize nanti
   setChartData(buildChart(rows))
   console.log('STAT ROWS:', rows.length)
-}, [rows, sensor, period])
+}, [rows, sensor, period, date])
 
   function buildChart(rows) {
+    // Parse selected date untuk context
+    const selectedDate = new Date(date + 'T00:00:00');
+    const selectedYear = selectedDate.getFullYear();
+    const selectedMonth = selectedDate.getMonth(); // 0-11
+    const selectedWeek = Math.floor((selectedDate.getDate() - 1) / 7); // 0-4
+
     let labels = []
     let buckets = []
 
     if (period === 'hour') {
+      // 24 jam untuk tanggal yang di-select
       labels = [...Array(24)].map(
         (_, i) => `${i.toString().padStart(2, '0')}:00`
       )
@@ -108,37 +117,66 @@ useEffect(() => {
     }
 
     if (period === 'day') {
+      // 7 hari (Senin-Minggu) dari minggu yang sama dengan tanggal yang di-select
       labels = DAYS
       buckets = Array.from({ length: 7 }, () => [])
     }
 
     if (period === 'week') {
+      // 4-5 minggu dari bulan yang sama dengan tanggal yang di-select
       labels = ['Minggu 1', 'Minggu 2', 'Minggu 3', 'Minggu 4', 'Minggu 5']
       buckets = Array.from({ length: 5 }, () => [])
     }
 
     if (period === 'month') {
+      // 12 bulan dari tahun yang sama dengan tanggal yang di-select
       labels = MONTHS
       buckets = Array.from({ length: 12 }, () => [])
     }
 
     rows.forEach(r => {
       const d = parseUTCToWIBDate(r.created_at)
-      let i = 0
+      let i = -1
 
-      if (period === 'hour') i = d.getHours()
-      if (period === 'day') i = d.getDay()
-      if (period === 'week') i = Math.min(4, Math.floor((d.getDate() - 1) / 7))
-      if (period === 'month') i = d.getMonth()
+      if (period === 'hour') {
+        // Jam dalam hari
+        i = d.getHours()
+      }
+      
+      if (period === 'day') {
+        // Hari dalam minggu (0=Minggu, 1=Senin, ..., 6=Sabtu)
+        // Tapi kami mau Senin=0, jadi adjust
+        i = (d.getDay() + 6) % 7 // Convert: Sun=6 → Senin=0
+      }
+      
+      if (period === 'week') {
+        // Minggu dalam bulan (0-4)
+        // Tapi hanya masukkan jika bulannya sama dengan selected month
+        if (d.getMonth() === selectedMonth && d.getFullYear() === selectedYear) {
+          i = Math.floor((d.getDate() - 1) / 7)
+        }
+      }
+      
+      if (period === 'month') {
+        // Bulan dalam tahun (0-11)
+        // Tapi hanya masukkan jika tahunnya sama dengan selected year
+        if (d.getFullYear() === selectedYear) {
+          i = d.getMonth()
+        }
+      }
 
-      buckets[i].push(sensors[sensor].get(r))
+      // Hanya push jika valid bucket index
+      if (i >= 0 && i < buckets.length) {
+        buckets[i].push(sensors[sensor].get(r))
+      }
     })
 
     console.log('🔍 BUILDCHART DEBUG:', {
       period,
+      date,
       buckets_count: buckets.length,
       filled_buckets: buckets.filter(b => b.length > 0).length,
-      buckets_detail: buckets.map((b, i) => ({ hour: i, count: b.length }))
+      buckets_detail: buckets.map((b, i) => ({ idx: i, count: b.length }))
     })
 
     const values = buckets.map(b => {
@@ -234,18 +272,25 @@ useEffect(() => {
       </div>
 
       <div className="statistics-display">
-        {loading && <p>Memuat data…</p>}
+  {loading && <p>Memuat data awal…</p>}
 
-        {!loading && chartData && (
-          <div className="chart-container">
-            {sensors[sensor].type === 'line' ? (
-              <Line data={chartData} options={chartOptions} />
-            ) : (
-              <Bar data={chartData} options={chartOptions} />
-            )}
-          </div>
-        )}
-      </div>
+  {!loading && chartData && (
+    <div className="chart-container">
+      {sensors[sensor].type === 'line' ? (
+        <Line data={chartData} options={chartOptions} />
+      ) : (
+        <Bar data={chartData} options={chartOptions} />
+      )}
+
+      {refreshing && (
+        <div className="chart-refresh-indicator">
+          memperbarui data…
+        </div>
+      )}
+    </div>
+  )}
+</div>
+
     </main>
   )
 }
